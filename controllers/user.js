@@ -5,43 +5,57 @@ const saltRounds = 10;
 
 const registerUser = async (req, res) => {
     const { name, password, email, contact_number, address } = req.body;
-    
+
+    if (!name || !password || !email) {
+        return res.status(400).json({
+            success: false,
+            message: 'Name, email, and password are required'
+        });
+    }
+
     try {
-        // Normalize email by trimming and converting to lowercase
         const normalizedEmail = email.trim().toLowerCase();
-        console.log('Registering email:', normalizedEmail);
-        
         const hashedPassword = await bcrypt.hash(password, saltRounds);
-        console.log('Hashed password:', hashedPassword);
 
+        // Add 'role' if your table requires it!
         const userSql = `INSERT INTO users 
-                        (name, password, email, contact_number, address) 
-                        VALUES (?, ?, ?, ?, ?)`;
-        
-        connection.execute(userSql, 
-            [name, hashedPassword, normalizedEmail, contact_number || null, address || null], 
-            (err, result) => {
-                if (err) {
-                    console.error('Registration error:', err);
-                    return res.status(400).json({
-                        success: false,
-                        message: 'Registration failed',
-                        error: err.code === 'ER_DUP_ENTRY' ? 'Email already exists' : 'Database error'
-                    });
-                }
+            (name, password, email, contact_number, address, status, role) 
+            VALUES (?, ?, ?, ?, ?, 'active', 'user')`;
 
-                console.log('Registration successful for user ID:', result.insertId);
-                return res.status(201).json({
-                    success: true,
-                    message: 'User registered successfully',
-                    userId: result.insertId
+        connection.execute(userSql, [
+            name,
+            hashedPassword,
+            normalizedEmail,
+            contact_number || null,
+            address || null
+        ], (err, result) => {
+            if (err) {
+                console.error('Registration error:', err);
+                let errorMessage = 'Registration failed';
+                if (err.code === 'ER_DUP_ENTRY') {
+                    errorMessage = 'Email already exists';
+                } else if (err.code === 'ER_NO_DEFAULT_FOR_FIELD') {
+                    errorMessage = `Missing required field: ${err.sqlMessage.split("'")[1]}`;
+                }
+                return res.status(400).json({
+                    success: false,
+                    message: errorMessage,
+                    error: err.message
                 });
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: 'User registered successfully',
+                userId: result.insertId
             });
+        });
     } catch (error) {
         console.error('Registration error:', error);
         return res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: error.message
         });
     }
 };
@@ -120,7 +134,7 @@ const loginUser = async (req, res) => {
                 const token = jwt.sign(
                     { id: user.id, role: user.role }, 
                     process.env.JWT_SECRET,
-                    { expiresIn: '1h' }
+                
                 );
 
                 const { password: _, ...userData } = user;
